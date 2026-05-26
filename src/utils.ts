@@ -15,12 +15,6 @@ export const warn  = (msg: string) => console.log(`${c.yellow("[dotmask]")} ⚠ 
 export const error = (msg: string) => console.error(`${c.red("[dotmask]")} ✗ ${msg}`);
 export const dim   = (msg: string) => console.log(c.dim(`  ${msg}`));
 
-export function requireMacOS(): void {
-  if (process.platform !== "darwin") {
-    throw new Error("macOS Keychain required. dotmask only works on macOS.");
-  }
-}
-
 export function parsePortFlag(args: string[], defaultPort: number): number {
   const idx = args.indexOf("--port");
   if (idx === -1) return defaultPort;

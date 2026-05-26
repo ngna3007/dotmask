@@ -4,6 +4,7 @@ import path from "node:path";
 import { ok, warn, log, error, c, parsePortFlag } from "../utils.js";
 import { CA_CERT_PATH, certExists, isCertTrusted, installCert, uninstallCert } from "../proxy/cert.js";
 import { installDaemon, uninstallDaemon, isDaemonLoaded, isDaemonRunning } from "../proxy/daemon.js";
+import { getPlatformName, requireSupportedPlatform } from "../platform/daemon.js";
 
 const DEFAULT_PORT = 18787;
 const CLAUDE_SETTINGS = path.join(os.homedir(), ".claude", "settings.json");
@@ -273,7 +274,7 @@ export function buildDoctorChecks(
     ["Proxy daemon loaded", deps.daemonLoaded, "Run dotmask install"],
     ["Proxy daemon running", deps.daemonRunning, "Run dotmask install or check ~/.dotmask/proxy.err.log"],
     ["CA cert exists", deps.certExists, "Restart proxy — it generates CA on first run"],
-    ["CA cert trusted", deps.certTrusted, "Run dotmask install (triggers macOS trust dialog)"],
+    ["CA cert trusted", deps.certTrusted, "Run dotmask install to trust the local CA certificate"],
     [
       "Claude Code settings readable",
       settings.ok,
@@ -333,12 +334,19 @@ export function install(args: string[]): number {
     return 1;
   }
 
+  try {
+    requireSupportedPlatform("dotmask install");
+  } catch (err) {
+    error(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+
   log("Installing dotmask proxy...\n");
 
   // 1. Start proxy daemon (it will generate CA cert on first start if missing)
   log("Starting proxy daemon...");
   installDaemon(port);
-  ok("Proxy daemon registered with launchd");
+  ok(`Proxy daemon registered on ${getPlatformName()}`);
 
   // 2. Wait briefly for server to start and generate CA
   let waited = 0;
@@ -353,7 +361,7 @@ export function install(args: string[]): number {
   } else if (isCertTrusted()) {
     ok("CA cert already trusted");
   } else {
-    log("\nInstalling CA certificate (you may see a macOS password prompt)...");
+    log(`\nInstalling CA certificate for ${getPlatformName()}...`);
     if (installCert()) {
       ok("CA cert installed and trusted");
     } else {
@@ -381,7 +389,7 @@ export function install(args: string[]): number {
   console.log("\n  " + c.bold("dotmask proxy is active:"));
   console.log(`    ${c.green("✓")}  Listening on ${c.cyan(`localhost:${port}`)}`);
   console.log(`    ${c.green("✓")}  Intercepts: Anthropic, OpenAI, OpenRouter`);
-  console.log(`    ${c.green("✓")}  Auto-starts at login via launchd`);
+  console.log(`    ${c.green("✓")}  Auto-starts at login on ${getPlatformName()}`);
   if (injectResult.proxyManaged) {
     console.log(`    ${c.green("✓")}  HTTPS_PROXY set for Claude Code`);
   } else {
@@ -395,6 +403,13 @@ export function install(args: string[]): number {
 }
 
 export function uninstall(_args: string[]): number {
+  try {
+    requireSupportedPlatform("dotmask uninstall");
+  } catch (err) {
+    error(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+
   log("Removing dotmask proxy...\n");
   let hadError = false;
 
@@ -408,7 +423,7 @@ export function uninstall(_args: string[]): number {
 
   try {
     uninstallCert();
-    ok("CA cert removed from Keychain");
+    ok("CA cert removed from trust store");
   } catch (err) {
     hadError = true;
     error(err instanceof Error ? err.message : String(err));
@@ -431,6 +446,13 @@ export function uninstall(_args: string[]): number {
 }
 
 export function status(): number {
+  try {
+    requireSupportedPlatform("dotmask status");
+  } catch (err) {
+    error(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+
   console.log(`\n  ${c.bold("dotmask proxy status")}\n`);
 
   const running = isDaemonRunning();
@@ -450,7 +472,7 @@ export function status(): number {
   );
   console.log(
     trusted
-      ? `  ${c.green("●")}  CA cert: ${c.green("trusted by macOS")}`
+      ? `  ${c.green("●")}  CA cert: ${c.green(`trusted by ${getPlatformName()}`)}`
       : `  ${c.yellow("○")}  CA cert: ${c.yellow("not trusted (run dotmask install)")}`
   );
 
@@ -485,6 +507,13 @@ export function status(): number {
 }
 
 export function doctor(): number {
+  try {
+    requireSupportedPlatform("dotmask doctor");
+  } catch (err) {
+    error(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+
   console.log(`\n  ${c.bold("dotmask doctor")}\n`);
 
   const settings = readSettings(CLAUDE_SETTINGS);

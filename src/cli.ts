@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { c, error, requireMacOS } from "./utils.js";
+import { c, error } from "./utils.js";
 import { install, uninstall, status, doctor } from "./commands/install.js";
 import { allow, disallow, hosts } from "./commands/hosts.js";
 
@@ -43,7 +43,7 @@ ${c.bold("Supported APIs:")}
 
 ${c.bold("QUICK START")}
   ${c.cyan("1.")} npm install -g @ducnmm/dotmask
-  ${c.cyan("2.")} dotmask install          ${c.dim("# macOS will ask to trust the proxy cert")}
+  ${c.cyan("2.")} dotmask install          ${c.dim("# trust the local proxy cert")}
   ${c.cyan("3.")} dotmask allow chat.trollllm.xyz   ${c.dim("# optional custom host")}
   ${c.cyan("4.")} Restart Claude Code — done
 `);
@@ -51,15 +51,6 @@ ${c.bold("QUICK START")}
 
 async function main(): Promise<number> {
   const [, , command, ...args] = process.argv;
-
-  if (["install", "uninstall", "status", "doctor"].includes(command ?? "")) {
-    try {
-      requireMacOS();
-    } catch (err) {
-      error(err instanceof Error ? err.message : String(err));
-      return 1;
-    }
-  }
 
   switch (command) {
     case "install":

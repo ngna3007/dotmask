@@ -3,7 +3,7 @@
  * dotmask proxy server — MITM HTTPS proxy entry point.
  * Intercepts requests to AI API domains and masks secrets in the request body.
  *
- * Started by launchd via daemon.ts. Can also be run manually:
+ * Started by the platform daemon helper. Can also be run manually:
  *   node dist/proxy/server.js --port 18787
  */
 
@@ -54,7 +54,7 @@ const certCache = new Map<string, CertCache>();
 
 /**
  * Generate a host certificate signed by our CA.
- * We shell out to `openssl` (always available on macOS) to keep code simple.
+ * We shell out to `openssl` to keep code dependency-light.
  */
 function getCertForHost(hostname: string): CertCache {
   if (certCache.has(hostname)) return certCache.get(hostname)!;
@@ -65,7 +65,7 @@ function getCertForHost(hostname: string): CertCache {
   // Use node:crypto to generate key pair
   const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
 
-  // We need to create a cert; use openssl CLI (always on macOS)
+  // We need to create a cert; use openssl CLI.
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "dotmask-cert-"));
   const keyPath = path.join(tmpDir, "host.key");
   const csrPath = path.join(tmpDir, "host.csr");

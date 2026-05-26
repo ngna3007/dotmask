@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { getPlatformName } from "../platform/daemon.js";
 
 export const DOTMASK_DIR = path.join(os.homedir(), ".dotmask");
 export const CA_DIR = path.join(DOTMASK_DIR, "ca");
@@ -19,9 +20,20 @@ function extractPemBlocks(text: string): string[] {
   return text.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? [];
 }
 
-/** Check whether the CA cert is already trusted in macOS Keychain. */
+/** Check whether the CA cert is already trusted by the current OS user store. */
 export function isCertTrusted(): boolean {
   if (!certExists()) return false;
+
+  if (process.platform === "win32") {
+    try {
+      const result = spawnSync("certutil", ["-user", "-store", "Root", KEYCHAIN_CERT_LABEL], { encoding: "utf8" });
+      return result.status === 0 && result.stdout.includes(KEYCHAIN_CERT_LABEL);
+    } catch {
+      return false;
+    }
+  }
+
+  if (process.platform !== "darwin") return false;
 
   try {
     const result = spawnSync("security", [
@@ -43,11 +55,23 @@ export function certExists(): boolean {
 }
 
 /**
- * Install the CA cert into macOS login Keychain and mark it as trusted.
- * Will trigger a macOS password/Touch ID prompt.
+ * Install the CA cert into the current user's trust store.
+ * macOS may trigger a password/Touch ID prompt.
  */
 export function installCert(): boolean {
   if (!certExists()) return false;
+
+  if (process.platform === "win32") {
+    try {
+      execFileSync("certutil", ["-user", "-addstore", "Root", CA_CERT_PATH], { stdio: "inherit" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  if (process.platform !== "darwin") return false;
+
   try {
     execFileSync("security", [
       "add-trusted-cert",
@@ -62,8 +86,19 @@ export function installCert(): boolean {
   }
 }
 
-/** Remove the dotmask CA cert from macOS Keychain. */
+/** Remove the dotmask CA cert from the current user's trust store. */
 export function uninstallCert(): void {
+  if (process.platform === "win32") {
+    try {
+      execFileSync("certutil", ["-user", "-delstore", "Root", KEYCHAIN_CERT_LABEL], { stdio: "pipe" });
+    } catch { /* already removed */ }
+    return;
+  }
+
+  if (process.platform !== "darwin") {
+    throw new Error(`certificate uninstall is not supported on ${getPlatformName()}`);
+  }
+
   try {
     execFileSync("security", [
       "delete-certificate",

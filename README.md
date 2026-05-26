@@ -13,6 +13,11 @@ dotmask install
 
 restart Claude Code after install.
 
+## supported platforms
+
+- macOS: uses Keychain, `security`, and `launchctl`
+- Windows: uses DPAPI through PowerShell, `certutil -user`, and Task Scheduler
+
 ## use
 
 use Claude Code like normal. dotmask runs automatically after install.
@@ -78,6 +83,8 @@ your secrets never leave your machine.
 
 ## debugging
 
+macOS/Linux shell:
+
 ```bash
 # view logs
 tail -f ~/.dotmask/proxy.err.log
@@ -86,12 +93,24 @@ tail -f ~/.dotmask/proxy.err.log
 DOTMASK_DEBUG=1 node dist/proxy/server.js --port 18787
 ```
 
+Windows PowerShell:
+
+```powershell
+# view logs
+Get-Content "$HOME\.dotmask\proxy.err.log" -Wait
+
+# run manually with debug
+$env:DOTMASK_DEBUG = "1"
+node dist/proxy/server.js --port 18787
+```
+
 ## notes
 
-- macOS only
+- macOS and Windows
 - Node.js 18+
 - `openssl` required
-- secrets stored in macOS Keychain
+- secrets stored in macOS Keychain on macOS
+- secrets encrypted with Windows DPAPI on Windows
 
 ## license
 

@@ -2,7 +2,7 @@
   "name": "@ducnmm/dotmask",
   "version": "1.0.7",
   "type": "module",
-  "description": "Transparent AI secret masking for macOS. Runs a local HTTPS proxy that replaces real API keys with format-identical fakes before they reach the AI, then restores them in tool-call responses.",
+  "description": "Transparent AI secret masking for macOS and Windows. Runs a local HTTPS proxy that replaces real API keys with format-identical fakes before they reach the AI, then restores them in tool-call responses.",
   "bin": {
     "dotmask": "bin/dotmask.js",
     "dm": "bin/dotmask.js"
@@ -11,7 +11,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "pretest": "npm run build",
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/config.test.js test/http.test.js test/install.test.js test/masker.test.js test/platform.test.js test/sse.test.js",
     "prepublishOnly": "npm run build"
   },
   "files": [
@@ -26,6 +26,7 @@
     "security",
     "keychain",
     "macos",
+    "windows",
     "cli",
     "claude-code",
     "codex",

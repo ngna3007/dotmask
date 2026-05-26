@@ -1,10 +1,8 @@
 import crypto from "node:crypto";
-import { execFileSync, execFile } from "node:child_process";
-import { promisify } from "node:util";
-const execFileAsync = promisify(execFile);
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import { lookupSecret, lookupSecretAsync, storeSecret } from "../platform/storage.js";
 
 // ── AI API domains to intercept ───────────────────────────────────────────────
 export const AI_DOMAINS = new Set([
@@ -182,51 +180,9 @@ function isHighEntropySecret(value: string): boolean {
   return false;
 }
 
-// ── Keychain integration ──────────────────────────────────────────────────────
-const KEYCHAIN_SERVICE = "dotmask";
+// ── Secret storage integration ────────────────────────────────────────────────
 const MAPS_DIR = path.join(os.homedir(), ".dotmask", "maps");
 const PROMPT_MAP_FILE = path.join(MAPS_DIR, "proxy-discovered.json");
-
-
-function keychainLookup(fakeKey: string): string | null {
-  try {
-    const result = execFileSync("security", [
-      "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", fakeKey, "-w",
-    ], { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim();
-    return result || null;
-  } catch {
-    return null;
-  }
-}
-
-/** Async parallel version — used when building the cache. */
-async function keychainLookupAsync(fakeKey: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync("security", [
-      "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", fakeKey, "-w",
-    ], { encoding: "utf8" });
-    return stdout.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function keychainStore(fakeKey: string, realValue: string): void {
-  try {
-    execFileSync("security", [
-      "delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", fakeKey,
-    ], { stdio: "pipe" });
-  } catch { /* ok — might not exist */ }
-  try {
-    execFileSync("security", [
-      "add-generic-password", "-s", KEYCHAIN_SERVICE, "-a", fakeKey, "-w", realValue,
-    ], { stdio: "pipe" });
-  } catch (err) {
-    throw new Error(
-      `failed to store secret mapping in Keychain for ${fakeKey}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-}
 
 function registerMapping(real: string, fake: string): void {
   // Guard: if the "real" value is itself already a known fake key, skip to
@@ -243,7 +199,7 @@ function registerMapping(real: string, fake: string): void {
   if (fs.existsSync(PROMPT_MAP_FILE)) {
     try { existing = JSON.parse(fs.readFileSync(PROMPT_MAP_FILE, "utf8")); } catch { /**/ }
   }
-  keychainStore(fake, real);
+  storeSecret(fake, real);
   if (!existing.includes(fake)) {
     existing.push(fake);
     fs.writeFileSync(PROMPT_MAP_FILE, JSON.stringify(existing, null, 2) + "\n", "utf8");
@@ -254,7 +210,7 @@ function registerMapping(real: string, fake: string): void {
   if (realToFakeCache || fakeToRealCache) cacheTime = Date.now();
 }
 
-// ── Keychain map cache (avoid repeated CLI calls per request) ─────────────────
+// ── Secret map cache (avoid repeated secure-store calls per request) ───────────
 const CACHE_TTL_MS = 30_000; // 30 seconds
 let realToFakeCache: Map<string, string> | null = null;
 let fakeToRealCache: Map<string, string> | null = null;
@@ -264,7 +220,7 @@ function isCacheValid(): boolean {
   return Date.now() - cacheTime < CACHE_TTL_MS && realToFakeCache !== null && fakeToRealCache !== null;
 }
 
-/** Load real→fake + fake→real maps from Keychain in parallel. */
+/** Load real→fake + fake→real maps from secure storage in parallel. */
 async function buildCacheAsync(): Promise<void> {
   if (!fs.existsSync(MAPS_DIR)) {
     realToFakeCache = new Map();
@@ -285,7 +241,7 @@ async function buildCacheAsync(): Promise<void> {
 
   // Lookup ALL keys in parallel
   const keys = [...allFakeKeys];
-  const values = await Promise.all(keys.map(k => keychainLookupAsync(k)));
+  const values = await Promise.all(keys.map(k => lookupSecretAsync(k)));
 
   const r2f = new Map<string, string>();
   const f2r = new Map<string, string>();
@@ -318,19 +274,19 @@ export async function warmMaskCacheAsync(): Promise<void> {
   await ensureCache();
 }
 
-/** Load real→fake map (async, parallel Keychain lookups). */
+/** Load real→fake map (async, parallel secure-store lookups). */
 export async function loadRealToFakeMapAsync(): Promise<Map<string, string>> {
   await ensureCache();
   return realToFakeCache ?? new Map();
 }
 
-/** Load fake→real map (async, parallel Keychain lookups). */
+/** Load fake→real map (async, parallel secure-store lookups). */
 export async function loadFakeToRealMapAsync(): Promise<Map<string, string>> {
   await ensureCache();
   return fakeToRealCache ?? new Map();
 }
 
-/** Sync fallback — uses cache if warm, otherwise cold Keychain calls. */
+/** Sync fallback — uses cache if warm, otherwise cold secure-store calls. */
 export function loadRealToFakeMap(): Map<string, string> {
   if (isCacheValid()) return realToFakeCache!;
 
@@ -349,7 +305,7 @@ export function loadRealToFakeMap(): Map<string, string> {
       const fakeKeys: unknown = JSON.parse(fs.readFileSync(path.join(MAPS_DIR, file), "utf8"));
       if (!Array.isArray(fakeKeys)) continue;
       for (const fake of fakeKeys as string[]) {
-        const real = keychainLookup(fake);
+        const real = lookupSecret(fake);
         if (real) {
           if (!map.has(real)) map.set(real, fake);
           f2r.set(fake, real);
@@ -390,7 +346,7 @@ export function maskText(text: string, realToFake: Map<string, string>): { maske
     }
   }
 
-  // 2. Scan for well-known token patterns not yet in Keychain
+  // 2. Scan for well-known token patterns not yet in secure storage
   masked = masked.replace(KNOWN_TOKEN_RE, (token) => {
     if ([...realToFake.values()].includes(token)) return token; // already fake
     const fake = makeFake(token);

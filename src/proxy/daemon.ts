@@ -4,66 +4,49 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DOTMASK_DIR, CA_DIR } from "./cert.js";
+import {
+  buildMacLaunchdPlist,
+  buildWindowsTaskCommand,
+  requireSupportedPlatform,
+} from "../platform/daemon.js";
 
 const LABEL = "com.dotmask.proxy";
+const WINDOWS_TASK_NAME = "dotmask-proxy";
 const PLIST_PATH = path.join(
-  os.homedir(), "Library", "LaunchAgents", `${LABEL}.plist`
+  os.homedir(), "Library", "LaunchAgents", `${LABEL}.plist`,
 );
 const LOG_PATH = path.join(DOTMASK_DIR, "proxy.log");
 const ERR_PATH = path.join(DOTMASK_DIR, "proxy.err.log");
 
-// Path to the compiled proxy server entry point
 function proxyBinPath(): string {
   const distDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    "..", ".."
+    "..", "..",
   );
   return path.join(distDir, "dist", "proxy", "server.js");
 }
 
 function nodeBin(): string {
-  return process.execPath; // use same node that runs dotmask
+  return process.execPath;
 }
 
-/** Build the launchd plist XML content. */
 function buildPlist(port: number): string {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>${LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${nodeBin()}</string>
-    <string>${proxyBinPath()}</string>
-    <string>--port</string>
-    <string>${port}</string>
-  </array>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>DOTMASK_CA_DIR</key>
-    <string>${CA_DIR}</string>
-    <key>DOTMASK_DEBUG</key>
-    <string>0</string>
-  </dict>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>${LOG_PATH}</string>
-  <key>StandardErrorPath</key>
-  <string>${ERR_PATH}</string>
-  <key>ThrottleInterval</key>
-  <integer>5</integer>
-</dict>
-</plist>
-`;
+  return buildMacLaunchdPlist(nodeBin(), proxyBinPath(), port, {
+    label: LABEL,
+    caDir: CA_DIR,
+    stdoutPath: LOG_PATH,
+    stderrPath: ERR_PATH,
+  });
 }
 
-/** Register and start the launchd agent. */
 export function installDaemon(port: number): void {
+  requireSupportedPlatform("dotmask install");
+
+  if (process.platform === "win32") {
+    installWindowsTask(port);
+    return;
+  }
+
   fs.mkdirSync(path.dirname(PLIST_PATH), { recursive: true });
   fs.mkdirSync(DOTMASK_DIR, { recursive: true });
 
@@ -75,18 +58,34 @@ export function installDaemon(port: number): void {
   execFileSync("launchctl", ["load", "-w", PLIST_PATH], { stdio: "pipe" });
 }
 
-/** Unload and remove the launchd agent. */
 export function uninstallDaemon(): void {
+  requireSupportedPlatform("dotmask uninstall");
+
+  if (process.platform === "win32") {
+    uninstallWindowsTask();
+    return;
+  }
+
   if (fs.existsSync(PLIST_PATH)) {
     try {
       execFileSync("launchctl", ["unload", PLIST_PATH], { stdio: "pipe" });
-    } catch { /* already unloaded */ }
+    } catch {
+      // Already unloaded.
+    }
     fs.rmSync(PLIST_PATH, { force: true });
   }
 }
 
-/** Check if the launchd agent is loaded. */
 export function isDaemonLoaded(): boolean {
+  if (process.platform === "win32") {
+    try {
+      const result = spawnSync("schtasks", ["/Query", "/TN", WINDOWS_TASK_NAME], { encoding: "utf8" });
+      return result.status === 0;
+    } catch {
+      return false;
+    }
+  }
+
   try {
     const result = spawnSync("launchctl", ["list", LABEL], { encoding: "utf8" });
     return result.status === 0;
@@ -95,12 +94,19 @@ export function isDaemonLoaded(): boolean {
   }
 }
 
-/** Check if the proxy process is actually running. */
 export function isDaemonRunning(): boolean {
+  if (process.platform === "win32") {
+    try {
+      const result = spawnSync("schtasks", ["/Query", "/TN", WINDOWS_TASK_NAME, "/V", "/FO", "LIST"], { encoding: "utf8" });
+      return result.status === 0 && /Status:\s+Running/i.test(result.stdout);
+    } catch {
+      return false;
+    }
+  }
+
   if (!isDaemonLoaded()) return false;
   try {
     const result = spawnSync("launchctl", ["list", LABEL], { encoding: "utf8" });
-    // launchctl list <label> outputs a property-list dict with "PID" key when running
     return result.status === 0 && result.stdout.includes('"PID"');
   } catch {
     return false;
@@ -108,6 +114,19 @@ export function isDaemonRunning(): boolean {
 }
 
 export function getDaemonPort(): number | null {
+  if (process.platform === "win32") {
+    try {
+      const result = spawnSync("schtasks", ["/Query", "/TN", WINDOWS_TASK_NAME, "/XML"], { encoding: "utf8" });
+      if (result.status !== 0) return null;
+      const match = /--port\s+(\d+)/.exec(result.stdout);
+      if (!match) return null;
+      const port = Number.parseInt(match[1], 10);
+      return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+    } catch {
+      return null;
+    }
+  }
+
   if (!fs.existsSync(PLIST_PATH)) return null;
 
   try {
@@ -119,5 +138,38 @@ export function getDaemonPort(): number | null {
     return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
   } catch {
     return null;
+  }
+}
+
+function installWindowsTask(port: number): void {
+  fs.mkdirSync(DOTMASK_DIR, { recursive: true });
+  fs.mkdirSync(CA_DIR, { recursive: true });
+
+  execFileSync("schtasks", [
+    "/Create",
+    "/TN", WINDOWS_TASK_NAME,
+    "/TR", buildWindowsTaskCommand(nodeBin(), proxyBinPath(), port),
+    "/SC", "ONLOGON",
+    "/RL", "LIMITED",
+    "/F",
+  ], { stdio: "pipe" });
+
+  try {
+    execFileSync("schtasks", ["/Run", "/TN", WINDOWS_TASK_NAME], { stdio: "pipe" });
+  } catch {
+    // Task remains registered and starts next login.
+  }
+}
+
+function uninstallWindowsTask(): void {
+  try {
+    execFileSync("schtasks", ["/End", "/TN", WINDOWS_TASK_NAME], { stdio: "pipe" });
+  } catch {
+    // Already stopped or never started.
+  }
+  try {
+    execFileSync("schtasks", ["/Delete", "/TN", WINDOWS_TASK_NAME, "/F"], { stdio: "pipe" });
+  } catch {
+    // Already removed.
   }
 }
