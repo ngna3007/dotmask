@@ -33,6 +33,8 @@ export function isCertTrusted(): boolean {
     }
   }
 
+  if (process.platform === "linux") return true;
+
   if (process.platform !== "darwin") return false;
 
   try {
@@ -70,6 +72,8 @@ export function installCert(): boolean {
     }
   }
 
+  if (process.platform === "linux") return true;
+
   if (process.platform !== "darwin") return false;
 
   try {
@@ -94,6 +98,8 @@ export function uninstallCert(): void {
     } catch { /* already removed */ }
     return;
   }
+
+  if (process.platform === "linux") return;
 
   if (process.platform !== "darwin") {
     throw new Error(`certificate uninstall is not supported on ${getPlatformName()}`);

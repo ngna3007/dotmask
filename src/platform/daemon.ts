@@ -1,16 +1,34 @@
 export function isSupportedPlatform(platform: NodeJS.Platform = process.platform): boolean {
-  return platform === "darwin" || platform === "win32";
+  return platform === "darwin" || platform === "win32" || platform === "linux";
 }
 
 export function getPlatformName(platform: NodeJS.Platform = process.platform): string {
   if (platform === "darwin") return "macOS";
   if (platform === "win32") return "Windows";
+  if (platform === "linux") return "Linux";
   return platform;
 }
 
 export function requireSupportedPlatform(commandName = "dotmask"): void {
   if (!isSupportedPlatform()) {
-    throw new Error(`${commandName} supports macOS and Windows. Current platform: ${getPlatformName()}.`);
+    throw new Error(`${commandName} supports macOS, Windows, and Linux. Current platform: ${getPlatformName()}.`);
+  }
+}
+
+export interface LinuxDaemonState {
+  pid: number;
+  port: number;
+}
+
+export function parseLinuxPidFile(text: string): LinuxDaemonState | null {
+  try {
+    const parsed = JSON.parse(text) as { pid?: unknown; port?: unknown };
+    if (typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid) || parsed.pid <= 0) return null;
+    if (typeof parsed.port !== "number" || !Number.isInteger(parsed.port)) return null;
+    if (parsed.port < 1 || parsed.port > 65535) return null;
+    return { pid: parsed.pid, port: parsed.port };
+  } catch {
+    return null;
   }
 }
 

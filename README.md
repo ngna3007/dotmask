@@ -17,6 +17,7 @@ restart Claude Code after install.
 
 - macOS: uses Keychain, `security`, and `launchctl`
 - Windows: uses DPAPI through PowerShell, `certutil -user`, and Task Scheduler
+- Linux/WSL: runs a detached local proxy process and uses `NODE_EXTRA_CA_CERTS`
 
 ## use
 
@@ -106,11 +107,12 @@ node dist/proxy/server.js --port 18787
 
 ## notes
 
-- macOS and Windows
+- macOS, Windows, and Linux/WSL
 - Node.js 18+
 - `openssl` required
 - secrets stored in macOS Keychain on macOS
 - secrets encrypted with Windows DPAPI on Windows
+- secrets stored in user-only `~/.dotmask` files on Linux/WSL
 
 ## license
 

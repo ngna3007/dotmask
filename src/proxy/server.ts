@@ -247,7 +247,6 @@ function handleConnect(
         tlsServer,
         e instanceof Error ? `dotmask blocked request before it left your machine: ${e.message}` : "dotmask blocked request before it left your machine",
       );
-      throw e;
     });
   }
 

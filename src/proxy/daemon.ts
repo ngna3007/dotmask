@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +7,7 @@ import { DOTMASK_DIR, CA_DIR } from "./cert.js";
 import {
   buildMacLaunchdPlist,
   buildWindowsTaskCommand,
+  parseLinuxPidFile,
   requireSupportedPlatform,
 } from "../platform/daemon.js";
 
@@ -17,6 +18,7 @@ const PLIST_PATH = path.join(
 );
 const LOG_PATH = path.join(DOTMASK_DIR, "proxy.log");
 const ERR_PATH = path.join(DOTMASK_DIR, "proxy.err.log");
+const LINUX_PID_PATH = path.join(DOTMASK_DIR, "proxy.pid.json");
 
 function proxyBinPath(): string {
   const distDir = path.resolve(
@@ -46,6 +48,10 @@ export function installDaemon(port: number): void {
     installWindowsTask(port);
     return;
   }
+  if (process.platform === "linux") {
+    installLinuxDaemon(port);
+    return;
+  }
 
   fs.mkdirSync(path.dirname(PLIST_PATH), { recursive: true });
   fs.mkdirSync(DOTMASK_DIR, { recursive: true });
@@ -63,6 +69,10 @@ export function uninstallDaemon(): void {
 
   if (process.platform === "win32") {
     uninstallWindowsTask();
+    return;
+  }
+  if (process.platform === "linux") {
+    uninstallLinuxDaemon();
     return;
   }
 
@@ -85,6 +95,9 @@ export function isDaemonLoaded(): boolean {
       return false;
     }
   }
+  if (process.platform === "linux") {
+    return readLinuxDaemonState() !== null;
+  }
 
   try {
     const result = spawnSync("launchctl", ["list", LABEL], { encoding: "utf8" });
@@ -102,6 +115,11 @@ export function isDaemonRunning(): boolean {
     } catch {
       return false;
     }
+  }
+  if (process.platform === "linux") {
+    const state = readLinuxDaemonState();
+    if (!state) return false;
+    return isPidRunning(state.pid);
   }
 
   if (!isDaemonLoaded()) return false;
@@ -125,6 +143,9 @@ export function getDaemonPort(): number | null {
     } catch {
       return null;
     }
+  }
+  if (process.platform === "linux") {
+    return readLinuxDaemonState()?.port ?? null;
   }
 
   if (!fs.existsSync(PLIST_PATH)) return null;
@@ -171,5 +192,66 @@ function uninstallWindowsTask(): void {
     execFileSync("schtasks", ["/Delete", "/TN", WINDOWS_TASK_NAME, "/F"], { stdio: "pipe" });
   } catch {
     // Already removed.
+  }
+}
+
+function installLinuxDaemon(port: number): void {
+  fs.mkdirSync(DOTMASK_DIR, { recursive: true });
+  fs.mkdirSync(CA_DIR, { recursive: true });
+
+  const existing = readLinuxDaemonState();
+  if (existing && isPidRunning(existing.pid)) {
+    try {
+      process.kill(existing.pid, "SIGTERM");
+    } catch {
+      // Already stopped.
+    }
+  }
+
+  const stdout = fs.openSync(LOG_PATH, "a");
+  const stderr = fs.openSync(ERR_PATH, "a");
+  const child = spawn(nodeBin(), [proxyBinPath(), "--port", String(port)], {
+    detached: true,
+    stdio: ["ignore", stdout, stderr],
+    env: {
+      ...process.env,
+      DOTMASK_CA_DIR: CA_DIR,
+      DOTMASK_DEBUG: process.env.DOTMASK_DEBUG ?? "0",
+    },
+  });
+
+  child.unref();
+  fs.writeFileSync(
+    LINUX_PID_PATH,
+    JSON.stringify({ pid: child.pid, port, startedAt: new Date().toISOString() }, null, 2) + "\n",
+    "utf8",
+  );
+}
+
+function uninstallLinuxDaemon(): void {
+  const state = readLinuxDaemonState();
+  if (state && isPidRunning(state.pid)) {
+    try {
+      process.kill(state.pid, "SIGTERM");
+    } catch {
+      // Already stopped.
+    }
+  }
+  fs.rmSync(LINUX_PID_PATH, { force: true });
+}
+
+function readLinuxDaemonState(): { pid: number; port: number } | null {
+  if (!fs.existsSync(LINUX_PID_PATH)) return null;
+  const state = parseLinuxPidFile(fs.readFileSync(LINUX_PID_PATH, "utf8"));
+  if (!state) return null;
+  return state;
+}
+
+function isPidRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }

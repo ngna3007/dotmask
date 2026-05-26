@@ -220,15 +220,4 @@ describe("install settings helpers", () => {
     assert.match(result.stderr, /invalid --port value/);
   });
 
-  test("cli reports unsupported platforms after parsing valid install args", () => {
-    if (process.platform === "darwin" || process.platform === "win32") return;
-
-    const cliPath = path.resolve("dist", "cli.js");
-    const result = spawnSync(process.execPath, [cliPath, "install", "--port", "18788"], {
-      encoding: "utf8",
-    });
-
-    assert.equal(result.status, 1);
-    assert.match(result.stderr, /dotmask install supports macOS and Windows/);
-  });
 });

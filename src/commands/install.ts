@@ -389,7 +389,11 @@ export function install(args: string[]): number {
   console.log("\n  " + c.bold("dotmask proxy is active:"));
   console.log(`    ${c.green("✓")}  Listening on ${c.cyan(`localhost:${port}`)}`);
   console.log(`    ${c.green("✓")}  Intercepts: Anthropic, OpenAI, OpenRouter`);
-  console.log(`    ${c.green("✓")}  Auto-starts at login on ${getPlatformName()}`);
+  if (process.platform === "linux") {
+    console.log(`    ${c.green("✓")}  Runs as a local background process on ${getPlatformName()}`);
+  } else {
+    console.log(`    ${c.green("✓")}  Auto-starts at login on ${getPlatformName()}`);
+  }
   if (injectResult.proxyManaged) {
     console.log(`    ${c.green("✓")}  HTTPS_PROXY set for Claude Code`);
   } else {

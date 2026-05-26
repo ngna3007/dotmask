@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make dotmask install, status, doctor, and secret mapping work on macOS and Windows.
+**Goal:** Make dotmask install, status, doctor, and secret mapping work on macOS, Windows, and Linux/WSL.
 
-**Architecture:** Keep proxy logic platform-neutral. Move OS behavior behind small platform modules for secure storage, CA trust, and daemon startup. macOS keeps Keychain, `security`, and `launchctl`; Windows uses DPAPI through PowerShell, `certutil -user`, and Task Scheduler.
+**Architecture:** Keep proxy logic platform-neutral. Move OS behavior behind small platform modules for secure storage, CA trust, and daemon startup. macOS keeps Keychain, `security`, and `launchctl`; Windows uses DPAPI through PowerShell, `certutil -user`, and Task Scheduler; Linux/WSL uses a detached local proxy process plus `NODE_EXTRA_CA_CERTS`.
 
 **Tech Stack:** Node.js 18+, TypeScript, Node test runner, macOS command-line tools, Windows PowerShell/certutil/schtasks.
 
